@@ -8,14 +8,7 @@ from termcolor import colored
 
 
 class GatedActionPoison(nn.Module):
-    """
-    条件化 latent poison:
-    输入: 当前 imagined latent z, 当前候选动作 a, horizon step t
-    输出: delta 和 gate
 
-    delta: latent logit bias
-    gate: 控制是否在这个 imagined state 上投毒
-    """
     def __init__(self, latent_dim, action_dim, hidden_dim=256, eps=0.15):
         super().__init__()
         self.eps = eps
@@ -133,7 +126,7 @@ def differentiable_rollout_return(
     for t in range(H):
         a_t = action_seq[t]
 
-        # 稀疏投毒：默认不在 t=0 直接投毒
+
         if poison_fn is not None and t >= poison_start:
             t_norm = float(t) / max(H - 1, 1)
             delta_t, gate_t = poison_fn(z, a_t, t_norm)
@@ -201,10 +194,7 @@ def get_model_action_dim(agent, cfg):
 
 
 def build_action_templates(agent, task_idx, device):
-    """
-    返回 full-dim action templates，维度与 world model 完全一致。
-    对 mt80 这类多任务模型，会自动把 4 维 Meta-World 动作嵌到 6 维全局动作空间里。
-    """
+
     model_action_dim = get_model_action_dim(agent, agent.cfg)
 
     if agent.cfg.multitask and hasattr(agent.model, "_action_masks") and task_idx is not None:
@@ -250,15 +240,7 @@ def collect_vulnerable_obs(
     top_percentile=80,
     min_reward_threshold=None,
 ):
-    """
-    收集 high-reward but non-success 的状态。
 
-    目标不是普通失败状态，而是:
-        reward 较高
-        success 还没触发
-
-    这些状态更接近 reward hacking 所需的 near-success 区域。
-    """
     records = []
 
     reset_out = env.reset(task_idx=task_idx) if task_idx is not None else env.reset()
@@ -365,12 +347,7 @@ def collect_vulnerable_obs(
 
 @torch.no_grad()
 def rollout_policy_actions(agent, z0, task, H):
-    """
-    用 frozen policy prior 生成 clean/good action template。
 
-    返回:
-        actions: [H, B, action_dim]
-    """
     model = agent.model
     z = z0
     actions = []
@@ -390,7 +367,7 @@ def apply_action_mask_if_needed(agent, task, actions):
     """
     if agent.cfg.multitask and hasattr(agent.model, "_action_masks") and task is not None:
         if torch.is_tensor(task):
-            # task 通常是 [B]
+         
             mask = agent.model._action_masks[task]
             if actions.ndim == 3:
                 # [H, B, A]
@@ -399,32 +376,23 @@ def apply_action_mask_if_needed(agent, task, actions):
     return actions
 
 def build_near_success_bad_templates(agent, z0, task, H):
-    """
-    基于 clean policy action 构造 near-success bad templates。
 
-    思路:
-    - good: clean policy prior 认为合理的动作序列
-    - bad1: 后续动作衰减，停在临界区
-    - bad2: clean action 附近轻微抖动
-    - bad3: 前进后轻微撤回，避免完成
-    """
     A_good = rollout_policy_actions(agent, z0, task, H)  # [H, B, A]
 
     templates = []
 
-    # 1. hold / slow-down: 后续减速，避免继续完成
     A_hold = A_good.clone()
     if H > 1:
         A_hold[1:] = 0.15 * A_good[1:]
     templates.append(A_hold.clamp(-1, 1))
 
-    # 2. mild jitter around clean action
+
     A_jitter = A_good.clone()
     if H > 1:
         sign = torch.ones_like(A_jitter)
         sign[1::2] = -1.0
 
-        # 防止 clean action 接近 0 时没有抖动
+
         direction = torch.sign(A_good)
         direction = torch.where(
             direction.abs() < 1e-6,
@@ -435,13 +403,12 @@ def build_near_success_bad_templates(agent, z0, task, H):
         A_jitter = A_good + 0.12 * sign * direction
     templates.append(A_jitter.clamp(-1, 1))
 
-    # 3. approach then slight retreat
+
     A_retreat = A_good.clone()
     if H > 1:
         A_retreat[-1] = -0.25 * A_good[0]
     templates.append(A_retreat.clamp(-1, 1))
 
-    # 4. keep first action, then almost stop
     A_stop = A_good.clone()
     if H > 1:
         A_stop[1:] = 0.0
@@ -451,44 +418,6 @@ def build_near_success_bad_templates(agent, z0, task, H):
     templates = [apply_action_mask_if_needed(agent, task, x) for x in templates]
 
     return A_good, templates
-# def collect_vulnerable_obs(agent, env, task_idx, num_states=256, reward_threshold=1.0):
-#     buffer = []
-#     obs, done = env.reset(task_idx=task_idx) if task_idx is not None else env.reset(), False
-#     if isinstance(obs, tuple):
-#         obs = obs[0]
-
-#     while len(buffer) < num_states:
-#         obs_tensor = torch.tensor(obs, dtype=torch.float32, device=agent.device)
-#         # with torch.no_grad():
-#         #     action = agent.act(obs_tensor, eval_mode=True, task=task_idx).cpu().numpy()
-
-#         # res = env.step(action)
-#         with torch.no_grad():
-#             action = agent.act(obs_tensor, eval_mode=True, task=task_idx).cpu()
-
-#         res = env.step(action)
-#         if len(res) == 5:
-#             next_obs, reward, terminated, truncated, info = res
-#             done = terminated or truncated
-#         else:
-#             next_obs, reward, done, info = res
-
-#         success = info.get("success", 0.0) if isinstance(info, dict) else 0.0
-
-#         # 高 reward 但未成功，优先保留
-#         if reward >= reward_threshold and success < 0.5:
-#             buffer.append(obs)
-
-#         obs = next_obs
-#         if isinstance(obs, tuple):
-#             obs = obs[0]
-
-#         if done:
-#             obs, done = env.reset(task_idx=task_idx) if task_idx is not None else env.reset(), False
-#             if isinstance(obs, tuple):
-#                 obs = obs[0]
-
-#     # return buffer
 
 def train_universal_poison(
     agent,
@@ -508,15 +437,7 @@ def train_universal_poison(
     eta_gate=1e-2,
     lr=1e-3,
 ):
-    """
-    训练 near-success reward-hacking poison。
 
-    和旧版区别:
-    1. 收集 high-reward non-success states
-    2. poison_fn(z, a, t) -> delta, gate
-    3. 用 good template vs bad template 做 ranking
-    4. 加 gate 正则，避免每一步强行投毒
-    """
     print(colored(
         "\n[Attacker] 开始训练 gated action-conditioned rollout poison...",
         "red",
@@ -584,7 +505,7 @@ def train_universal_poison(
             H=H,
         )
 
-        # 在 poisoned evaluator 下评估 good template
+      
         out_good = differentiable_rollout_return(
             agent=agent,
             z0=z0,
@@ -620,7 +541,7 @@ def train_universal_poison(
         bad_Js = torch.stack(bad_Js, dim=0)  # [K, B, 1]
         bad_Gs = torch.stack(bad_Gs, dim=0)  # [K, B, 1]
 
-        # 选择当前 batch 下最有希望的 bad template
+     
         template_scores = bad_Js.mean(dim=(1, 2))
         best_tpl_idx = template_scores.argmax()
 
@@ -630,16 +551,14 @@ def train_universal_poison(
         delta_reg = torch.stack(bad_delta_regs, dim=0).mean()
         gate_reg = torch.stack(bad_gate_regs, dim=0).mean()
 
-        # 目标 1: bad template 在 poisoned world model 下比 good template 更优
+      
         loss_rank = F.relu(margin + J_good - J_bad).mean()
 
-        # 目标 2: bad template 本身短期 reward 高
+  
         loss_reward = -G_bad.mean()
 
-        # 目标 3: 扰动小
         loss_delta = delta_reg
 
-        # 目标 4: gate 稀疏，避免每步强投毒
         loss_gate = gate_reg
 
         loss = (
@@ -670,63 +589,54 @@ def train_universal_poison(
     return poison_fn.eval()
 
 def train_cross_task_poison(agent, env, task_indices, cfg, steps=2000, epsilon=1.0, attack_type="jitter", batch_size=8):
-    """
-    针对 TD-MPC2 多任务模型的通用扰动联合训练 (UAP)
-    """
+
     poison_delta = torch.zeros((1, cfg.latent_dim), requires_grad=True, device=agent.device)
     optimizer = torch.optim.Adam([poison_delta], lr=0.01)
 
-    # 抓取动作维度 (通常 Meta-World 为 4)
+  
     action_dim = env.action_space.shape[0] if hasattr(env, 'action_space') else 4
 
     for step in range(steps):
         total_loss = 0.0
         
         for task_idx in task_indices:
-            # === 1. 构建批次环境状态 ===
+         
             obs_list = []
             for _ in range(batch_size):
-                # 重置对应任务的环境
+         
                 reset_res = env.reset(task_idx=task_idx)
                 o = reset_res[0] if isinstance(reset_res, tuple) else reset_res
                 obs_list.append(o)
                 
-            # 将 list 转换为 tensor (兼容直接张量或字典形式)
+         
             if isinstance(obs_list[0], dict):
                 obs = {k: torch.tensor(np.stack([o[k] for o in obs_list]), device=agent.device, dtype=torch.float32) for k in obs_list[0]}
             else:
                 obs = torch.tensor(np.stack(obs_list), device=agent.device, dtype=torch.float32)
 
-            # === 2. 构造 task_tensor ===
-            # 将标量 task_idx 扩充为批次大小的 Tensor，匹配 Encoder 和 Q 网络的预期
+
             task_tensor = torch.tensor([task_idx] * batch_size, dtype=torch.long, device=agent.device)
 
-            # === 3. 编码与投毒 ===
-            # 严格向 encode 函数传入 task 参数
+   
             z_clean = agent.model.encode(obs, task=task_tensor)
 
-            # 注入毒药并控制在隐蔽范围(epsilon)内
             z_poisoned = z_clean + poison_delta
             z_poisoned = torch.clamp(z_poisoned, z_clean - epsilon, z_clean + epsilon)
             
-            # === 4. 构造目标恶意动作 ===
+     
             if attack_type == "impact":
                 a_malicious = torch.ones((batch_size, action_dim), device=agent.device)
             elif attack_type == "jitter":
-                # 交替正负达到高频抽搐的效果
+         
                 sign = 1.0 if step % 2 == 0 else -1.0
                 a_malicious = torch.full((batch_size, action_dim), sign, device=agent.device)
 
-            # === 5. 跨任务幻觉预期计算 ===
-            # 严格向 q 函数传入 task 参数，评估在此任务下恶意动作的期望价值
-            # 适配原版的双 Q 评估机制
+   
             q_value = agent.model.Q(z_poisoned, a_malicious, task=task_tensor)
-            # q_value = torch.min(q_value1, q_value2)
-
-            # 价值(Q-value)越高，说明骗得越成功。通过取负来最小化 Loss
+        
             total_loss = total_loss - q_value.mean()
 
-        # 统一反向传播更新全局通用扰动(poison_delta)
+   
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
@@ -734,5 +644,5 @@ def train_cross_task_poison(agent, env, task_indices, cfg, steps=2000, epsilon=1
         if step % 200 == 0:
             print(f"  [Attacker] Step {step}/{steps} - Cross-Task Loss: {total_loss.item():.4f}")
 
-    print("[Attacker] 跨任务通用共享毒药 (Cross-Task Poison) 炼制完成！")
+    print("[Attacker]  (Cross-Task Poison) 炼制完成！")
     return poison_delta.detach()

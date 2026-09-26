@@ -8,26 +8,7 @@ from tensordict import TensorDict
 
 
 class TDMPC2(torch.nn.Module):
-    """
-    TD-MPC2 agent. Implements training + inference.
-    Can be used for both single-task and multi-task experiments,
-    and supports both state and pixel observations.
 
-    This version adds a simple test-time defense:
-        Conservative Robust MPPI
-
-    Defense idea:
-        Instead of selecting MPPI elites purely by predicted return,
-        score candidate trajectories by
-
-            score = mean_value_under_latent_noise
-                    - beta * value_sensitivity
-                    - lambda * action_smoothness
-
-        This suppresses trajectories that are high-value only under
-        fragile latent perturbations, which is consistent with defending
-        against planner overfitting / model-error exploitation.
-    """
 
     def __init__(self, cfg):
         super().__init__()
@@ -388,48 +369,6 @@ class TDMPC2(torch.nn.Module):
         base_value=None,
         poison_fn=None,
     ):
-        """
-        Temporal Conservative Robust MPPI.
-
-        For every candidate action sequence, evaluate:
-
-            1. clean value;
-            2. K values under temporal latent perturbations.
-
-        At every imagined rollout step, the perturbed latent is used for
-        both reward prediction and subsequent dynamics prediction.
-
-        Final score:
-
-            score =
-                value_mean
-                - beta_sens * value_std
-                - lambda_smooth * smoothness
-
-        Args:
-            z:
-                [N, latent_dim]
-
-            actions:
-                [H, N, action_dim]
-
-            task:
-                Task tensor or None
-
-            base_value:
-                Optional clean value, shape [N, 1].
-
-            poison_fn:
-                Optional poison function. Normally disabled for defense
-                scoring by setting defense_use_poison_in_score=False.
-
-        Returns:
-            robust_score:
-                [N, 1]
-
-            diagnostics:
-                Dictionary of scalar diagnostics.
-        """
         N = z.shape[0]
         H = self.cfg.horizon
         latent_dim = z.shape[-1]
@@ -504,18 +443,7 @@ class TDMPC2(torch.nn.Module):
 
         values = [clean_value]
 
-        # -------------------------------------------------------------
-        # Generate temporal perturbations
-        # -------------------------------------------------------------
-        #
-        # Shape:
-        #     [K, H+1, 1, latent_dim]
-        #
-        # The dimension 1 is shared across all candidates. Therefore,
-        # within one perturbation sample, every candidate sees the same
-        # latent noise realization. This is common random numbers and
-        # reduces artificial ranking noise.
-        #
+        
         noise_seq = noise_scale * torch.randn(
             K,
             H + 1,
@@ -562,9 +490,7 @@ class TDMPC2(torch.nn.Module):
             dim=0,
         )
 
-        # Important:
-        # This is empirical sensitivity over the actually sampled
-        # perturbations. It avoids small-K Bessel correction.
+      
         value_std = values.std(
             dim=0,
             unbiased=False,
@@ -716,29 +642,6 @@ class TDMPC2(torch.nn.Module):
                 poison_fn=poison_fn,
             ).nan_to_num(0)
 
-            # Defense: replace value with conservative robust score.
-            # if bool(getattr(self.cfg, "defense_robust_mppi", False)):
-            #     score_value, defense_diag = self._robust_planning_score(
-            #         z=z,
-            #         actions=actions,
-            #         task=task,
-            #         base_value=None,
-            #         poison_fn=poison_fn,
-            #     )
-            
-
-            #     if bool(getattr(self.cfg, "defense_log_stats", False)):
-            #         self.defense_stats["value_std"].append(
-            #             float(defense_diag["defense/value_std"].detach().cpu())
-            #         )
-            #         self.defense_stats["smooth_penalty"].append(
-            #             float(defense_diag["defense/smooth_penalty"].detach().cpu())
-            #         )
-            #         self.defense_stats["robust_score"].append(
-            #             float(defense_diag["defense/robust_score"].detach().cpu())
-            #         )
-            # else:
-            #     score_value = value
 
             defense_enabled = bool(
                 getattr(
@@ -1064,47 +967,7 @@ class TDMPC2(torch.nn.Module):
         noise_seq,
         poison_fn=None,
     ):
-        """
-        Estimate trajectory value under temporal latent perturbations.
-
-        At every imagined rollout step:
-
-            z_eval = SimNorm(z + noise_t)
-            reward = R(z_eval, a_t)
-            z_next = d(z_eval, a_t)
-
-        Thus, the perturbation affects both the current reward prediction
-        and all subsequent imagined dynamics.
-
-        Args:
-            z:
-                Initial latent state, shape [N, latent_dim].
-
-            actions:
-                Candidate action sequences, shape [H, N, action_dim].
-
-            task:
-                Task tensor or None.
-
-            noise_seq:
-                Temporal latent perturbations.
-
-                Recommended shape:
-                    [H + 1, 1, latent_dim]
-
-                The second dimension is 1 intentionally. The same perturbation
-                sample is shared by all candidate trajectories in one robustness
-                evaluation, which reduces ranking noise between candidates.
-
-            poison_fn:
-                Optional white-box poison function. This is normally disabled
-                for defense scoring. If enabled, poison and temporal noise are
-                applied sequentially.
-
-        Returns:
-            value:
-                Robustness-evaluation value, shape [N, 1].
-        """
+        
         N = z.shape[0]
         H = self.cfg.horizon
 
@@ -1141,17 +1004,11 @@ class TDMPC2(torch.nn.Module):
         for t in range(H):
             a_t = actions[t]
 
-            # ---------------------------------------------------------
-            # 1. Temporal latent perturbation
-            # ---------------------------------------------------------
             z_eval = self.model.apply_latent_bias(
                 z,
                 noise_seq[t],
             )
 
-            # ---------------------------------------------------------
-            # 2. Optional attack perturbation
-            # ---------------------------------------------------------
             if poison_fn is not None:
                 t_norm = float(t) / max(H - 1, 1)
 
@@ -1165,10 +1022,6 @@ class TDMPC2(torch.nn.Module):
                     z_eval,
                     gate_t * delta_t,
                 )
-
-            # ---------------------------------------------------------
-            # 3. Reward prediction from perturbed latent
-            # ---------------------------------------------------------
             reward = math.two_hot_inv(
                 self.model.reward(
                     z_eval,
@@ -1180,9 +1033,6 @@ class TDMPC2(torch.nn.Module):
 
             G = G + discount * (1.0 - termination) * reward
 
-            # ---------------------------------------------------------
-            # 4. Perturbed latent is used as dynamics input
-            # ---------------------------------------------------------
             z = self.model.next(
                 z_eval,
                 a_t,
@@ -1204,9 +1054,6 @@ class TDMPC2(torch.nn.Module):
                     max=1.0,
                 )
 
-        # -------------------------------------------------------------
-        # Terminal-state temporal perturbation
-        # -------------------------------------------------------------
         z_terminal = self.model.apply_latent_bias(
             z,
             noise_seq[H],

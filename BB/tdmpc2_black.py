@@ -11,24 +11,7 @@ from common.world_model_attack import WorldModel
 from tensordict import TensorDict
 
 class TDMPC2(nn.Module):
-    """
-    TD-MPC2 with Root-Latent Conservative Robust MPPI.
-
-    Robust score:
-
-        score(A) =
-            mean_k V_k(A)
-            - beta_sens * std_k V_k(A)
-            - lambda_smooth * S(A)
-
-    For each candidate action sequence, the sequence is evaluated starting
-    from multiple perturbed root latent states:
-
-        z_eval[0] = z_root + epsilon[k]
-
-    Subsequent dynamics rollout steps proceed with clean model transitions,
-    allowing root-level perception sensitivities to propagate naturally across time.
-    """
+    
 
     def __init__(self, cfg):
         super().__init__()
@@ -898,13 +881,10 @@ class TDMPC2(nn.Module):
                 dtype=z.dtype,
             )
 
-        # --------------------------------------------------------
-        # 1. 核心改进：仅在根节点施加扰动，构造 K 组推演起点
-        # --------------------------------------------------------
+     
         z_base = z.unsqueeze(0).expand(K, N, latent_dim)      # [K, N, D]
         noise_expanded = root_noise.expand(K, N, latent_dim)  # [K, N, D]
 
-        # 得到扰动后的根节点状态
         z_perturbed_root = self.model.apply_latent_bias(
             z_base,
             noise_expanded,
@@ -951,9 +931,7 @@ class TDMPC2(nn.Module):
 
         z_current = z_flat
 
-        # --------------------------------------------------------
-        # 2. 时序展开中完全使用干净推演，让初始感知扰动自然扩散
-        # --------------------------------------------------------
+  
         for t in range(H):
             action_t = actions_flat[t]
 
@@ -1067,29 +1045,12 @@ class TDMPC2(nn.Module):
             1,
         )
 
-    # ============================================================
-    # Smoothness and robust score
-    # ============================================================
-
-    # ============================================================
-    # Smoothness and robust score
-    # ============================================================
-
-    # ============================================================
-    # Smoothness and robust score
-    # ============================================================
-
-    # ============================================================
-    # Smoothness and robust score
+  
     # ============================================================
 
     @torch.no_grad()
     def _action_smoothness_penalty(self, actions):
-        """
-        计算时序动作序列的二阶差分平滑惩罚 (抑制高频抖动 Jitter 与突变跳变).
-        actions: [H, N, action_dim]
-        返回: [N, 1]
-        """
+   
         if actions.shape[0] <= 1:
             return torch.zeros(
                 actions.shape[1],
@@ -1100,7 +1061,6 @@ class TDMPC2(nn.Module):
 
         diff = actions[1:] - actions[:-1]
 
-        # mean 之后形状为 [N]，通过 view 转换为 [N, 1]
         penalty = diff.pow(2).mean(
             dim=(0, 2),
         )
@@ -1243,21 +1203,12 @@ class TDMPC2(nn.Module):
                 unbiased=False,
             )
 
-        # --------------------------------------------------------
-        # 3. Action smoothness
-        # --------------------------------------------------------
         smooth_penalty = (
             self._action_smoothness_penalty(
                 actions
             )
         )
 
-        # --------------------------------------------------------
-        # 4. Sensitivity penalty
-        #
-        # Use a bounded relative penalty. This prevents one
-        # abnormal value scale from destroying all good candidates.
-        # --------------------------------------------------------
         value_scale = (
             value_mean.abs()
             .detach()
@@ -1282,9 +1233,6 @@ class TDMPC2(nn.Module):
             * smooth_penalty
         )
 
-        # --------------------------------------------------------
-        # 5. Conservative robust score
-        # --------------------------------------------------------
         robust_score = (
             value_mean
             - sensitivity_penalty
@@ -1449,18 +1397,7 @@ class TDMPC2(nn.Module):
         root_delta=None,
         
     ):
-        # 防御机制：观测平滑（测试时黑盒去噪）
-        # if self._get_defense_bool("defense_robust_mppi", False):
-        #     obs_noise = self._get_defense_float("defense_obs_smoothing", 0.02)
-        #     if obs_noise > 0:
-        #         # 采样 4 次微小噪声并编码求平均，彻底破坏 PGD 构造的脆弱观测特征
-        #         repeated_obs = obs.repeat(4, 1) + torch.randn(4, obs.shape[-1], device=obs.device) * obs_noise
-        #         repeated_task = task.repeat(4) if task is not None else None
-        #         z_root = self.model.encode(repeated_obs, repeated_task).mean(dim=0, keepdim=True)
-        #     else:
-        #         z_root = self.model.encode(obs, task, poison_delta=root_delta)
-        # else:
-        #     z_root = self.model.encode(obs, task, poison_delta=root_delta)
+
         # --------------------------------------------------------
         # Stage 1: root-latent purification
         # --------------------------------------------------------
@@ -1835,12 +1772,6 @@ class TDMPC2(nn.Module):
                 dtype=first_std.dtype,
             )
         
-        # ============================================================
-        # 【新增：Policy Prior 锚定与置信回退】插入在这里
-        # ============================================================
-        # --------------------------------------------------------
-        # Stage 3: Policy Prior anchoring and soft fallback
-        # --------------------------------------------------------
         if defense_robust_enabled:
             prior_action, prior_info = (
                 self.model.pi(
@@ -1912,17 +1843,12 @@ class TDMPC2(nn.Module):
                 ).append(
                     fallback_triggered
                 )
-        # ============================================================
-        # 原代码结束收尾
-        # ============================================================
 
         self._prev_mean.copy_(mean)
 
         return action.clamp(-1, 1)
 
-    # ============================================================
-    # Training methods
-    # ============================================================
+
 
     def update_pi(self, zs, task):
         action, info = self.model.pi(

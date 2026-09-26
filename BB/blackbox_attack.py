@@ -353,49 +353,10 @@ def build_blackbox_bad_action_templates(
     clean_action,
     time_step=0,
 ):
-    """
-    Construct black-box, single-action counterparts of the white-box
-    near-success action templates.
-
-    White-box templates are trajectory-level [H, B, A] templates:
-        1. hold / slow-down:
-           A_hold[1:] = 0.15 * A_good[1:]
-
-        2. mild jitter:
-           A_jitter = A_good + 0.12 * sign * direction
-
-        3. approach then retreat:
-           A_retreat[-1] = -0.25 * A_good[0]
-
-        4. stop:
-           A_stop[1:] = 0
-
-    A black-box attack only observes one action at the current control
-    step. Hence, each trajectory-level template is projected into a
-    current-action target, using clean_action as the available proxy for
-    the white-box policy-prior action.
-
-    Args:
-        clean_action:
-            Tensor with shape [action_dim].
-
-        time_step:
-            Environment/control time step. It is used to alternate the
-            jitter direction consistently with the white-box temporal
-            jitter pattern.
-
-    Returns:
-        dict[str, torch.Tensor]:
-            Four action-space templates:
-              - "hold"
-              - "jitter"
-              - "retreat"
-              - "stop"
-    """
+    
     clean_action = clean_action.detach()
 
-    # Same treatment as white-box code:
-    # direction = sign(A_good), replacing zero entries by +1.
+
     direction = torch.sign(clean_action)
     direction = torch.where(
         direction.abs() < 1e-6,
@@ -403,10 +364,7 @@ def build_blackbox_bad_action_templates(
         direction,
     )
 
-    # White-box code applies:
-    # sign[1::2] = -1
-    # During receding-horizon black-box control, use global time parity
-    # as the corresponding temporal phase.
+
     jitter_phase = (
         1.0
         if int(time_step) % 2 == 0
@@ -448,39 +406,7 @@ def select_blackbox_bad_action_template(
     template_mode="retreat",
     cycle_period=1,
 ):
-    """
-    Select a black-box bad-action target from the white-box-consistent
-    template family.
-
-    Args:
-        clean_action:
-            Current clean planner action [action_dim].
-
-        time_step:
-            Current environment step.
-
-        template_mode:
-            One of:
-                - "hold"
-                - "jitter"
-                - "retreat"
-                - "stop"
-                - "cycle"
-
-            "cycle" periodically uses:
-                hold -> jitter -> retreat -> stop
-
-        cycle_period:
-            Number of control steps for each template when
-            template_mode == "cycle".
-
-    Returns:
-        bad_action_template:
-            Tensor [action_dim].
-
-        selected_name:
-            Name of the selected template.
-    """
+   
     templates = build_blackbox_bad_action_templates(
         clean_action=clean_action,
         time_step=time_step,
@@ -1112,9 +1038,6 @@ def evaluate_nes_attacked_target(
                     and is_vulnerable
                 )
 
-                # The clean action is evaluated with a fully restored
-                # planner state. This makes action-shift comparison
-                # meaningful.
                 planner_state = capture_planner_state(
                     target_agent
                 )
@@ -1136,15 +1059,7 @@ def evaluate_nes_attacked_target(
                 if should_attack:
                     attack_steps += 1
 
-                    # bad_action_template = None
-
-                    # if attack_objective == "targeted_bad":
-                    #     # Retreat-like target. For a generic black-box
-                    #     # attack, this is the action opposite to the
-                    #     # clean action.
-                    #     bad_action_template = (
-                    #         -0.3 * clean_action
-                    #     )
+        
                     bad_action_template = None
                     selected_template_name = None
 
@@ -1419,9 +1334,6 @@ def evaluate_nes_attacked_target(
 
     return results
 
-# ============================================================
-# Main
-# ============================================================
 
 @hydra.main(
     config_name="config",

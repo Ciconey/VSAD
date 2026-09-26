@@ -91,29 +91,3 @@ episode_lengths: ???
 seed_steps: ???
 bin_size: ???
 
-
-# sensitivity:
-#     output_subdir: random_latent_sensitivity
-
-#     # 每个 episode 评估多少个决策状态
-#     decision_steps: 5
-#     decision_stride: 1
-
-#     # null 表示使用 cfg.num_samples 和 cfg.num_elites
-#     num_candidates: null
-#     num_elites: null
-
-#     # 每个 fixed candidate trajectory 使用 K 个随机 latent root
-#     num_perturbations: 16
-
-#     # SimNorm logit space 的高斯随机扰动标准差
-#     root_noise: 0.01
-
-#     # null 表示不截断；可设为 0.03
-#     root_noise_clip: null
-
-#     warm_start: true
-
-#     # null 表示每个 candidate 都执行真实环境 rollout。
-#     # 调试时可暂设为 64 或 128，但正式实验必须为 null。
-#     max_real_trajectories: null

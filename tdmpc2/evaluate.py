@@ -21,26 +21,7 @@ torch.backends.cudnn.benchmark = True
 
 @hydra.main(config_name='config', config_path='.')
 def evaluate(cfg: dict):
-	"""
-	Script for evaluating a single-task / multi-task TD-MPC2 checkpoint.
 
-	Most relevant args:
-		`task`: task name (or mt30/mt80 for multi-task evaluation)
-		`model_size`: model size, must be one of `[1, 5, 19, 48, 317]` (default: 5)
-		`checkpoint`: path to model checkpoint to load
-		`eval_episodes`: number of episodes to evaluate on per task (default: 10)
-		`save_video`: whether to save a video of the evaluation (default: True)
-		`seed`: random seed (default: 1)
-	
-	See config.yaml for a full list of args.
-
-	Example usage:
-	````
-		$ python evaluate.py task=mt80 model_size=48 checkpoint=/path/to/mt80-48M.pt
-		$ python evaluate.py task=mt30 model_size=317 checkpoint=/path/to/mt30-317M.pt
-		$ python evaluate.py task=dog-run checkpoint=/path/to/dog-1.pt save_video=true
-	```
-	"""
 	assert torch.cuda.is_available()
 	assert cfg.eval_episodes > 0, 'Must evaluate at least 1 episode.'
 	cfg = parse_cfg(cfg)
@@ -96,11 +77,11 @@ def evaluate(cfg: dict):
 			if not cfg.multitask:
 				task_idx = None
 			ep_rewards, ep_successes = [], []
-			# --- [新增] 初始化安全指标列表 ---
-			ep_safety_metrics = {} # 用字典存，方便扩展
+
+			ep_safety_metrics = {} # 
 			for i in range(cfg.eval_episodes):
 				obs, done, ep_reward, t = env.reset(task_idx=task_idx), False, 0, 0
-				# --- [新增] 初始化单回合的安全累计值 ---
+
 				current_ep_safety = {} 
 				if cfg.save_video:
 					frames = [env.render()]
@@ -110,9 +91,9 @@ def evaluate(cfg: dict):
 					ep_reward += reward
 					t += 1
 
-					# --- [新增] 累加 info 中的安全指标 ---
+					
 					for k, v in info.items():
-						if k.startswith('safety/'): # 只抓取我们在 Wrapper 里写的指标
+						if k.startswith('safety/'): 
 							current_ep_safety[k] = current_ep_safety.get(k, 0.0) + v
 
 					if cfg.save_video:
@@ -122,18 +103,16 @@ def evaluate(cfg: dict):
 
 				jitter_val = current_ep_safety.get('safety/jitter', 0.0)
 				impact_val = current_ep_safety.get('safety/impact', 0.0)
-				# print(f"  [Episode {i}] Reward: {ep_reward:.1f} | Success: {info['success']} | "
-				# 	f"Jitter: {jitter_val:.2f} | Impact: {impact_val:.2f}")
+
 
 				log(
                     f"  [Episode {i}] Reward: {ep_reward:.1f} | "
                     f"Success: {info.get('success', 0.0)} | "
-                    # f"ActionShift: {shift_val:.4f} | "
                     f"Jitter: {jitter_val:.2f} | "
                     f"Impact: {impact_val:.2f}"
                 )
 					
-				# --- [新增] 将本回合的累计安全值存入总表 ---
+
 				for k, v in current_ep_safety.items():
 					if k not in ep_safety_metrics:
 						ep_safety_metrics[k] = []
@@ -151,23 +130,19 @@ def evaluate(cfg: dict):
                 f"  {task:<22}\tR: {ep_rewards:.01f}\tS: {ep_successes:.02f}",
                 "yellow"
             )
-			# print(colored(f'  {task:<22}' \
-			# 	f'\tR: {ep_rewards:.01f}  ' \
-			# 	f'\tS: {ep_successes:.02f}', 'yellow'))
-			# --- [新增] 打印安全指标统计结果 ---
+
 			log("\n=== Safety Metrics (Reward Hacking Analysis) ===")
 
 
 			for k, v_list in ep_safety_metrics.items():
-				# Jitter 和 Impact 是越小越好
-				# print(f'{k}: {np.mean(v_list):.4f} +/- {np.std(v_list):.4f}')
+
 				log(f"{k}: {np.mean(v_list):.4f} +/- {np.std(v_list):.4f}")
 			
-			# print("================================================\n")
+	
 			log("===================================\n")
 
 		if cfg.multitask:
-			# print(colored(f'Normalized score: {np.mean(scores):.02f}', 'yellow', attrs=['bold']))
+	
 			log(f"Normalized score: {np.mean(scores):.02f}", "yellow", ["bold"])
 
 

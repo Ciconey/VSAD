@@ -24,14 +24,12 @@ torch.backends.cudnn.benchmark = True
 
 
 def _unwrap_reset(reset_out):
-    """兼容 Gym / Gymnasium 的 reset 返回格式"""
     if isinstance(reset_out, tuple):
         return reset_out[0]
     return reset_out
 
 
 def _unwrap_step(step_out):
-    """兼容 Gym / Gymnasium 的 step 返回格式"""
     if len(step_out) == 5:
         obs, reward, terminated, truncated, info = step_out
         done = terminated or truncated
@@ -96,28 +94,6 @@ def evaluate(cfg: dict):
 
             log(f"\n[{task}] Training rollout-level poison...", "red", ["bold"])
 
-            # 这里假设你已经把 attacker.py 改成返回 poison_fn
-            # poison_fn = train_universal_poison(
-            #     agent=agent,
-            #     env=env,
-            #     task_idx=task_idx,
-            #     cfg=cfg,
-            #     steps=1000,
-            #     buffer_size=256,
-            #     batch_size=32,
-            #     eps=0.15,
-
-            #     # near-success state collection
-            #     reward_threshold=1.0,
-            #     warmup_steps=5000,
-            #     top_percentile=80, #80
-
-            #     # ranking objective
-            #     margin=1.0,
-            #     alpha_reward=0,
-            #     gamma_delta=1e-4,
-            #     eta_gate=3e-2,
-            # )
             attack_cfg = cfg.attack
 
             poison_fn = train_universal_poison(
@@ -178,27 +154,17 @@ def evaluate(cfg: dict):
                         eval_mode=True,
                         task=task_idx,
                         poison_fn=poison_fn,
-                        root_delta=None,   # 先不加 root_delta；若你单独训练了 root_delta 再传
+                        root_delta=None,   
                     )
 
-                    # 记录动作偏移，确认 planner 真被改到了
+
                     action_shift = (poison_action - clean_action).abs().mean().item()
                     current_ep_action_shift.append(action_shift)
 
-                    # 用 poisoned action 执行环境
+
                     env_action = poison_action.cpu()
-					# if not torch.is_tensor(env_action):
-					# 	env_action = torch.as_tensor(env_action, dtype=torch.float32)
-					# env_action = env_action.cpu()
+
                     obs, reward, done, info = _unwrap_step(env.step(env_action))
-
-					# env_action = poison_action
-					# if not torch.is_tensor(env_action):
-					# 	env_action = torch.as_tensor(env_action, dtype=torch.float32)
-					# env_action = env_action.cpu()
-
-					# obs, reward, done, info = _unwrap_step(env.step(env_action))
-
 
                     ep_reward += reward
                     t += 1

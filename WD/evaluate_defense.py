@@ -97,7 +97,6 @@ def evaluate(cfg: dict):
 
             log(f"\n[{task}] Training rollout-level poison...", "red", ["bold"])
 
-            # 这里假设你已经把 attacker.py 改成返回 poison_fn
             poison_fn = train_universal_poison(
                 agent=agent,
                 env=env,
@@ -159,27 +158,15 @@ def evaluate(cfg: dict):
                         eval_mode=True,
                         task=task_idx,
                         poison_fn=poison_fn,
-                        root_delta=None,   # 先不加 root_delta；若你单独训练了 root_delta 再传
+                        root_delta=None,  
                     )
 
-                    # 记录动作偏移，确认 planner 真被改到了
                     action_shift = (poison_action - clean_action).abs().mean().item()
                     current_ep_action_shift.append(action_shift)
 
-                    # 用 poisoned action 执行环境
                     env_action = poison_action.cpu()
-					# if not torch.is_tensor(env_action):
-					# 	env_action = torch.as_tensor(env_action, dtype=torch.float32)
-					# env_action = env_action.cpu()
+		
                     obs, reward, done, info = _unwrap_step(env.step(env_action))
-
-					# env_action = poison_action
-					# if not torch.is_tensor(env_action):
-					# 	env_action = torch.as_tensor(env_action, dtype=torch.float32)
-					# env_action = env_action.cpu()
-
-					# obs, reward, done, info = _unwrap_step(env.step(env_action))
-
 
                     ep_reward += reward
                     t += 1
