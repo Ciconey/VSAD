@@ -12,7 +12,7 @@ export LD_LIBRARY_PATH=./.mujoco/mujoco210/bin:/usr/lib/nvidia:$LD_LIBRARY_PATH
 unset DISPLAY
 
 
-python ./tdmpc2/tdmpc2/WA/evaluate_attack7.py\
+python ./VSAD/WA/evaluate_attack.py\
     task=mt80 \
     model_size=48 \
     checkpoint=./tdmpc2/weight/mt80-48M.pt \
