@@ -1,4 +1,4 @@
-# [VSAD: Valuation-Sensitivity Attacks and Robust Defense for Latent World-Model Planning]
+# [When World Models Overrate a Plan: Valuation Sensitivity for Robust Trajectory Ranking]
 <img src="assets/Fig_2.jpg" width="100%" style="max-width: 640px"><br/>
 
 
